@@ -25,7 +25,7 @@ def create_all_tables(db_manager):
     db_manager.create_table(
         "decrypted_media",
         """(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INT AUTO_INCREMENT PRIMARY KEY,
             user_id VARCHAR(255),
             media_type_id INT,
             path_to_decrypted_media VARCHAR(255),
@@ -38,6 +38,11 @@ def create_all_tables(db_manager):
         "media_menu",
         "(id_media INTEGER PRIMARY KEY, image_path VARCHAR(255), audio_path VARCHAR(255), video_path VARCHAR(255))"
     )
+
+    # דרישת המשתמש: להציג בממשק את שם המשתמש עצמו, לא רק את ה-hash שלו.
+    # השרת מקבל רק hash של השם (למפתח ראשי/אבטחה), אז מוסיפים עמודה נפרדת
+    # שתאחסן את השם הרגיל שהקליינט שולח בנוסף, לצורך תצוגה בלבד.
+    db_manager.add_column_if_missing("clients", "username", "VARCHAR(255)")
 
 
 def populate_media_menu(db_manager):

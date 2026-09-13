@@ -1,4 +1,5 @@
 import base64
+import os
 from Crypto.Cipher import AES
 from constants import CHUNK_SIZE
 
@@ -7,7 +8,11 @@ class Encryption:
     Class for managing encryption and decryption using AES
     
     Documentation: This class is responsible for encrypting and decrypting data using AES-GCM protocol.
-    The class uses a fixed key and fixed nonce for simplicity.
+    Short protocol/text messages use a fixed key and fixed nonce for simplicity
+    (send_encrypted_message/receive_encrypted_message). File payloads (send_encrypted_file/
+    receive_encrypted_file) are encrypted with a per-client personal key and a fresh random
+    nonce for every file, so the hidden/decoded media itself is genuinely protected end-to-end
+    and not just the surrounding protocol chatter.
     """
 
     def __init__(self):
@@ -107,6 +112,90 @@ class Encryption:
             data += chunk
         decrypted = self.decrypt_data(data.decode())
         return decrypted.decode()
+
+    @staticmethod
+    def _valid_key(key):
+        """A usable AES key must be 16, 24, or 32 bytes long."""
+        return isinstance(key, (bytes, bytearray)) and len(key) in (16, 24, 32)
+
+    def encrypt_bytes_with_key(self, data: bytes, key: bytes) -> bytes:
+        """
+        Encrypts arbitrary binary data (e.g. a whole file) using AES-GCM with
+        the given key and a freshly generated random 12-byte nonce (unlike
+        encrypt_data, which reuses one fixed nonce - fine for short control
+        messages, but file payloads get their own random nonce per call).
+
+        Returns: nonce (12 bytes) + tag (16 bytes) + ciphertext, concatenated.
+        """
+        nonce = os.urandom(12)
+        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+        ciphertext, tag = cipher.encrypt_and_digest(data)
+        return nonce + tag + ciphertext
+
+    def decrypt_bytes_with_key(self, blob: bytes, key: bytes) -> bytes:
+        """Reverses encrypt_bytes_with_key: splits nonce/tag/ciphertext and verifies+decrypts."""
+        nonce, tag, ciphertext = blob[:12], blob[12:28], blob[28:]
+        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+        return cipher.decrypt_and_verify(ciphertext, tag)
+
+    def send_encrypted_file(self, sock, data: bytes, key: bytes = None):
+        """
+        Sends binary file data over the socket.
+
+        Documentation:
+        If a valid per-client `key` is given, the file bytes are first
+        encrypted with AES-GCM using that key and a random nonce
+        (encrypt_bytes_with_key) - this is what actually protects hidden/
+        decoded media end-to-end, not just the surrounding protocol text.
+        The (possibly encrypted) payload's size is then sent as a normal
+        encrypted control message, followed by the raw payload bytes.
+
+        Args:
+            sock: Socket object to send data through
+            data (bytes): The raw file bytes to send
+            key: The client's personal AES key (16/24/32 bytes). If missing
+                 or the wrong length, falls back to sending unencrypted
+                 (with a printed warning) rather than crashing the transfer.
+        """
+        if self._valid_key(key):
+            payload = self.encrypt_bytes_with_key(data, key)
+        else:
+            print("[encrypt] Warning: no valid personal key - sending file payload unencrypted.")
+            payload = data
+        self.send_encrypted_message(sock, str(len(payload)))
+        sock.sendall(payload)
+
+    def receive_encrypted_file(self, sock, key: bytes = None, size: int = None) -> bytes:
+        """
+        Receives binary file data over the socket.
+
+        Documentation:
+        If `size` is not provided, first reads it as an encrypted message
+        (matching send_encrypted_file). Then reads exactly that many raw
+        bytes from the socket. If a valid `key` is given, the received
+        bytes are decrypted with it (decrypt_bytes_with_key) to recover the
+        original file content.
+
+        Args:
+            sock: Socket object to receive data from
+            key: The client's personal AES key, matching what was used to encrypt.
+            size: Optional known size in bytes, to avoid re-reading the
+                  length header when the caller already consumed it.
+
+        Returns:
+            bytes: The original (decrypted) file data.
+        """
+        if size is None:
+            size = int(self.receive_encrypted_message(sock))
+        payload = b''
+        while len(payload) < size:
+            chunk = sock.recv(min(CHUNK_SIZE, size - len(payload)))
+            if not chunk:
+                break
+            payload += chunk
+        if self._valid_key(key):
+            return self.decrypt_bytes_with_key(payload, key)
+        return payload
 
 # Example usage:
 # encryptor = Encryption()

@@ -8,14 +8,19 @@ class ImageExtractor:
     extracting hidden JPEG images from it, saving them, and sending them back.
     """
 
-    def __init__(self, client_socket, db_manager, user_id):
+    def __init__(self, client_socket, db_manager, user_id, personal_key=None):
         """
         Initializes the extractor with the client's socket, DB manager, and user ID.
-        
+
+        Args:
+            personal_key: The connected client's unique AES key - used both
+                          to decrypt the incoming media and to encrypt the
+                          decoded images sent back.
         """
         self.client_socket = client_socket
         self.db_manager = db_manager
         self.user_id = user_id
+        self.personal_key = personal_key
         self.jpeg_start = b'\xFF\xD8'
         self.jpeg_end = b'\xFF\xD9'
         self.found_images = []
@@ -23,20 +28,12 @@ class ImageExtractor:
 
     def receive_media(self):
         """
-        Receives the media file size (encrypted) and raw binary media data from the client.
+        Receives the media file from the client and decrypts it with the
+        client's personal key.
 
-        :return: binary data of the received media file
+        :return: binary data of the received (decrypted) media file
         """
-        media_size = int(self.encryptor.receive_encrypted_message(self.client_socket))
-        media_data = b''
-
-        while len(media_data) < media_size:
-            chunk = self.client_socket.recv(4096)
-            if not chunk:
-                break
-            media_data += chunk
-
-        return media_data
+        return self.encryptor.receive_encrypted_file(self.client_socket, self.personal_key)
 
     def save_temp_file(self, data):
         """
@@ -77,19 +74,15 @@ class ImageExtractor:
 
     def send_results(self):
         """
-        Sends the number of found images to the client,
-        then sends each image size (encrypted), waits for "ACK", and sends the image file.
+        Sends the number of found images to the client, then sends each
+        image encrypted with the client's personal key.
         """
         self.encryptor.send_encrypted_message(self.client_socket, f"{len(self.found_images)}")
 
         for image_path in self.found_images:
             with open(image_path, "rb") as file:
                 data = file.read()
-                self.encryptor.send_encrypted_message(self.client_socket, f"{len(data)}")
-                ack = self.encryptor.receive_encrypted_message(self.client_socket)
-                if ack != "ACK":
-                    break
-                self.client_socket.sendall(data)
+            self.encryptor.send_encrypted_file(self.client_socket, data, self.personal_key)
 
     def run(self):
         """

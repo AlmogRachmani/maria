@@ -1,5 +1,6 @@
 import socket
 import os
+import glob
 import random
 from PIL import Image
 from constants import IP, PORT
@@ -10,9 +11,16 @@ class Client:
     def __init__(self):
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
 
-        self.decrypted_list_paths = [
-            os.path.join(self.base_dir, "mail_photo.jpg")
-        ]
+        # תיקון: קובץ קבוע בשם "mail_photo.jpg" לא בהכרח קיים אצל כל משתמש.
+        # במקום זאת מחפשים אוטומטית קבצי hidden_*.jpg שכבר נוצרו ע"י Hide -
+        # אלה קבצים שבאמת מכילים תמונה מוסתרת בתוכם, ולכן Decode יעבוד עליהם.
+        existing_hidden_files = glob.glob(os.path.join(self.base_dir, "hidden_*.jpg"))
+        if existing_hidden_files:
+            self.decrypted_list_paths = existing_hidden_files
+        else:
+            self.decrypted_list_paths = [
+                os.path.join(self.base_dir, "mail_photo.jpg")
+            ]
         self.usual_images = [
             os.path.join(self.base_dir, "IMG_3495.jpg"),
             os.path.join(self.base_dir, "REST1.png"),
@@ -51,8 +59,9 @@ class Client:
         self.encryptor.send_encrypted_message(self.client_socket, client_id)
         server_response = self.encryptor.receive_encrypted_message(self.client_socket)
         
-        # שליחת המפתח האישי ישירות דרך ה-Socket
-        self.client_socket.sendall(self.personal_key)
+        # תיקון: שליחת המפתח האישי דרך הפרוטוקול המוצפן (עם 4 בייטי אורך),
+        # ולא כ-sendall גולמי - כדי שלא יתנגש עם receive_encrypted_message בצד השרת.
+        self.encryptor.send_encrypted_message(self.client_socket, self.personal_key.hex())
 
         print("Personal key sent to server.")
         print(server_response)
@@ -78,18 +87,24 @@ class Client:
         print("\nAvailable media to hide data in:\n")
         print(media_menu)
 
-        selected_media_id = str(random.randint(1, 4))
+        # תיקון: לפרש את ה-IDs האמיתיים מתוך התפריט שהתקבל, במקום לנחש טווח
+        # קבוע (שעלול לכלול ID שלא קיים ולגרום לקריסה בצד השרת).
+        available_ids = [line.split(":")[0].strip() for line in media_menu.splitlines() if ":" in line]
+        selected_media_id = random.choice(available_ids) if available_ids else "1"
         self.encryptor.send_encrypted_message(self.client_socket, selected_media_id)
 
         data_to_hide_path = random.choice(self.usual_images)
         print("Data to hide:", data_to_hide_path)
 
-        if not os.path.exists(data_to_hide_path):
-            print("File to hide does not exist. Returning to menu.")
-            return
-
-        with open(data_to_hide_path, "rb") as file:
-            data_to_hide = file.read()
+        if os.path.exists(data_to_hide_path):
+            with open(data_to_hide_path, "rb") as file:
+                data_to_hide = file.read()
+        else:
+            # תיקון: אם הקובץ לא קיים, לא מפסיקים באמצע הפרוטוקול (השרת כבר מחכה
+            # לגודל הקובץ בשלב הזה) - שולחים 0 בייטים כדי לשמור על סנכרון ולחזור
+            # לתפריט בצורה תקינה, במקום לתקוע את שני הצדדים.
+            print("File to hide does not exist. Sending empty data to stay in sync with server.")
+            data_to_hide = b""
 
         self.encryptor.send_encrypted_file(
             self.client_socket,
@@ -113,12 +128,13 @@ class Client:
         media_path = random.choice(self.decrypted_list_paths)
         print("Decrypted file chosen:", media_path)
 
-        if not os.path.exists(media_path):
-            print("File does not exist. Returning to menu.")
-            return
-
-        with open(media_path, "rb") as file:
-            data = file.read()
+        if os.path.exists(media_path):
+            with open(media_path, "rb") as file:
+                data = file.read()
+        else:
+            # תיקון: לא לחתוך את הפרוטוקול באמצע - השרת כבר מחכה לקבל קובץ.
+            print("File does not exist. Sending empty data to stay in sync with server.")
+            data = b""
 
         self.encryptor.send_encrypted_file(
             self.client_socket,
@@ -130,9 +146,9 @@ class Client:
         print(f"Found {num_images} hidden images.")
 
         for i in range(num_images):
-            image_size = int(self.encryptor.receive_encrypted_message(self.client_socket))
-            self.encryptor.send_encrypted_message(self.client_socket, "ACK")
-
+            # תיקון: השרת כבר לא שולח גודל בנפרד + מחכה ל-ACK (זה יותר מדי
+            # round-trips מיותרים) - send_encrypted_file/receive_encrypted_file
+            # כבר מטפלות בגודל ובפענוח בעצמן.
             image_data = self.encryptor.receive_encrypted_file(
                 self.client_socket,
                 self.personal_key
@@ -157,12 +173,14 @@ class Client:
         username = input("Enter username for registration: ")
         password = input("Enter password for registration: ")
         hashed_username = self.hash_value(username)
-        hashed_password = self.hash_value(password)
+        hashed_password = self.hash_value(password, salt=hashed_username)
 
         try:
             self.encryptor.send_encrypted_message(self.client_socket, "REGISTER")
             self.encryptor.send_encrypted_message(self.client_socket, hashed_username)
             self.encryptor.send_encrypted_message(self.client_socket, hashed_password)
+            # שולחים גם את השם הרגיל (לא ה-hash) כדי שהשרת יוכל להציג אותו ב-GUI
+            self.encryptor.send_encrypted_message(self.client_socket, username)
 
             response = self.encryptor.receive_encrypted_message(self.client_socket)
             print(response)
@@ -178,12 +196,15 @@ class Client:
         username = input("Enter username: ")
         password = input("Enter password: ")
         hashed_username = self.hash_value(username)
-        hashed_password = self.hash_value(password)
+        hashed_password = self.hash_value(password, salt=hashed_username)
 
         try:
             self.encryptor.send_encrypted_message(self.client_socket, "LOGIN")
             self.encryptor.send_encrypted_message(self.client_socket, hashed_username)
             self.encryptor.send_encrypted_message(self.client_socket, hashed_password)
+            # שולחים גם את השם הרגיל כדי שהשרת יוכל להציג אותו ב-GUI (ולעדכן
+            # חשבונות ישנים שנרשמו לפני שהוספנו את התכונה הזו)
+            self.encryptor.send_encrypted_message(self.client_socket, username)
 
             response = self.encryptor.receive_encrypted_message(self.client_socket)
             print(response)
@@ -192,8 +213,15 @@ class Client:
             print(f"Connection error during login: {e}")
             return None
 
-    def hash_value(self, value):
-        return hashlib.sha256(value.encode()).hexdigest()
+    def hash_value(self, value, salt=""):
+        """
+        Hashes a value with SHA-256, optionally salted.
+
+        תיקון לדרישה 4: לשימוש בכל hash של סיסמה מוסיפים salt שנגזר מה-username,
+        כדי שאותה סיסמה של שני משתמשים שונים לא תיצור את אותו hash
+        (מונע תקיפות מסוג rainbow table).
+        """
+        return hashlib.sha256((value + salt).encode()).hexdigest()
 
     def run(self):
         while True:
@@ -235,8 +263,11 @@ class Client:
             menu = self.receive_menu()
             if not menu:
                 break
+            if menu.startswith("SERVER_ERROR"):
+                print("Server reported an error and closed this connection.")
+                break
 
-            option = str(random.randint(1, 3))
+            option = input("Choose an option (1-3): ").strip()
             print("Chosen option:", option)
             self.encryptor.send_encrypted_message(self.client_socket, option)
 

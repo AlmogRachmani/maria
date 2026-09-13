@@ -1,19 +1,27 @@
 from datetime import datetime
 from encrypt import Encryption
+from constants import MEDIA_DIR
+import os
 
 class DataHider:
     """
     A class to handle the process of receiving data from a client and hiding it in a base media file.
     """
 
-    def __init__(self, client_socket, db_manager, user_id):
+    def __init__(self, client_socket, db_manager, user_id, personal_key=None):
         """
         Initializes the DataHider with necessary resources.
-        
+
+        Args:
+            personal_key: The connected client's unique AES key (received
+                          during login) - used to actually decrypt the file
+                          payload the client sends, instead of just passing
+                          the raw bytes through.
         """
         self.client_socket = client_socket
         self.db_manager = db_manager
         self.user_id = user_id
+        self.personal_key = personal_key
         self.encryptor = Encryption()
 
     def fetch_media_menu(self):
@@ -27,26 +35,22 @@ class DataHider:
             self.encryptor.send_encrypted_message(self.client_socket, "No media options available.")
             return None
 
-        menu_str = "\n".join([f"{item[0]}: {item[1] or item[2] or item[3]}" for item in media_menu])
+        menu_str = "\n".join(
+            [f"{item['id_media']}: {item['image_path'] or item['audio_path'] or item['video_path']}" for item in media_menu]
+        )
         self.encryptor.send_encrypted_message(self.client_socket, menu_str)
 
         selected_id = self.encryptor.receive_encrypted_message(self.client_socket)
-        return next(item for item in media_menu if str(item[0]) == selected_id)
+        return next(item for item in media_menu if str(item['id_media']) == selected_id)
 
     def receive_data_to_hide(self):
         """
-        Receives the size and the actual binary data from the client.
+        Receives the encrypted file payload from the client and decrypts it
+        with the client's personal key, returning the original binary data.
 
-        :return: The binary data sent by the client.
+        :return: The (decrypted) binary data sent by the client.
         """
-        size = int(self.encryptor.receive_encrypted_message(self.client_socket))
-        data = b''
-        while len(data) < size:
-            chunk = self.client_socket.recv(4096)
-            if not chunk:
-                break
-            data += chunk
-        return data
+        return self.encryptor.receive_encrypted_file(self.client_socket, self.personal_key)
 
     def create_hidden_file(self, media_path, data_to_hide):
         """
@@ -58,7 +62,21 @@ class DataHider:
         """
         output_path = f"hidden_{self.user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
 
-        with open(media_path, "rb") as media_file:
+        # media_path כפי שמגיע מ-media_menu הוא רק שם קובץ (למשל "poke.jpg").
+        # הוא יכול להימצא בתוך MEDIA_DIR (הקונבנציה המתוכננת) או ישירות בתיקיית
+        # השורש של הפרויקט (איך שהקבצים בפועל יושבים אצל חלק מהמשתמשים) -
+        # בודקים את שניהם כדי לא להיכשל בגלל מיקום שונה בין מחשבים.
+        candidate_paths = [
+            os.path.join(MEDIA_DIR, media_path),
+            media_path,
+        ]
+        full_media_path = next((p for p in candidate_paths if os.path.exists(p)), None)
+        if full_media_path is None:
+            raise FileNotFoundError(
+                f"Could not find media file '{media_path}' in MEDIA_DIR or project root."
+            )
+
+        with open(full_media_path, "rb") as media_file:
             media_data = media_file.read()
 
         with open(output_path, "wb") as output_file:
@@ -78,10 +96,10 @@ class DataHider:
 
         data_to_hide = self.receive_data_to_hide()
 
-        media_path = selected_media[1]  # Assuming image_path
+        media_path = selected_media['image_path']  # column name, not positional index
         output_path = self.create_hidden_file(media_path, data_to_hide)
 
         self.db_manager.insert_decrypted_media(self.user_id, 1, output_path)
 
         self.encryptor.send_encrypted_message(self.client_socket, f"Data successfully hidden in {output_path}")
-        return selected_media[0], 1, output_path
+        return selected_media['id_media'], 1, output_path
