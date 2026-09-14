@@ -14,6 +14,7 @@ import pygame
 import time
 from encrypt import Encryption
 
+# --- ערכת נושא (Theme) - דרקון/פנטזיה, זהב על שחור-בורדו ---
 BG_DARK = "#160707"
 BG_PANEL = "#1f0a0a"
 BG_FIELD = "#2a0e0e"
@@ -43,25 +44,30 @@ class Server:
         self.log_text = None
         self.connected_tree = None
         self.history_tree = None
-        self._icon_photo = None  
-
+        self._icon_photo = None 
         self.b_dir = os.path.dirname(os.path.abspath(__file__))
-        self.assets_dir = self.b_dir  
-        self.search_var = tk.StringVar()
+        self.assets_dir = self.b_dir
         self.last_file_label = None
 
     def _asset(self, filename):
         return os.path.join(self.assets_dir, filename)
 
     def play_audio(self):
+
         try:
             pygame.mixer.init()
             pygame.mixer.music.load(os.path.join(self.b_dir, "background_theme.mp3"))
             pygame.mixer.music.play()
-            pygame.mixer.music.queue("Led_Zeppelin_-_Stairway_To_Heaven_HQ_320_kb_(mp3.pm).mp3")
+            pygame.mixer.music.queue("LedZeppelin-_Stairway_To_Heaven_HQ_320kb(mp3.pm).mp3")
 
+            def start_background_loop():
+                try:
+                    pygame.mixer.music.load(os.path.join(self.b_dir, "background_theme.mp3"))
+                    pygame.mixer.music.play(loops=-1)
+                except Exception:
+                    pass
 
-
+            threading.Timer(2.6, start_background_loop).start()
         except Exception:
             pass
 
@@ -227,7 +233,7 @@ class Server:
             try:
                 self.encryptor.send_encrypted_message(client_socket, f"SERVER_ERROR: {e}")
             except Exception:
-                pass 
+                pass  
         finally:
             if hashed_username:
                 self.db_manager.set_client_online_status(hashed_username, 0)
@@ -349,6 +355,9 @@ class Server:
 
         self._configure_style()
 
+
+        self.search_var = tk.StringVar(master=self.root)
+
         header = tk.Frame(self.root, bg=BG_PANEL, highlightbackground=GOLD, highlightthickness=1)
         header.pack(fill="x", padx=10, pady=(10, 6))
 
@@ -360,6 +369,7 @@ class Server:
         title_box = tk.Frame(header, bg=BG_PANEL)
         title_box.pack(side=tk.LEFT, pady=8)
         Label(title_box, text="MASKER", font=TITLE_FONT, fg=GOLD, bg=BG_PANEL).pack(anchor="w")
+        Label(title_box, text="Dragon Steganography Command Center", font=SUBTITLE_FONT, fg=CREAM, bg=BG_PANEL).pack(anchor="w")
 
         Label(self.root, text="Server Log", font=SECTION_FONT, fg=GOLD, bg=BG_DARK).pack(anchor="w", padx=14, pady=(4, 0))
         self.log_text = scrolledtext.ScrolledText(
