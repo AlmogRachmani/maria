@@ -10,10 +10,6 @@ import hashlib
 class Client:
     def __init__(self):
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
-
-        # תיקון: קובץ קבוע בשם "mail_photo.jpg" לא בהכרח קיים אצל כל משתמש.
-        # במקום זאת מחפשים אוטומטית קבצי hidden_*.jpg שכבר נוצרו ע"י Hide -
-        # אלה קבצים שבאמת מכילים תמונה מוסתרת בתוכם, ולכן Decode יעבוד עליהם.
         existing_hidden_files = glob.glob(os.path.join(self.base_dir, "hidden_*.jpg"))
         if existing_hidden_files:
             self.decrypted_list_paths = existing_hidden_files
@@ -59,8 +55,6 @@ class Client:
         self.encryptor.send_encrypted_message(self.client_socket, client_id)
         server_response = self.encryptor.receive_encrypted_message(self.client_socket)
         
-        # תיקון: שליחת המפתח האישי דרך הפרוטוקול המוצפן (עם 4 בייטי אורך),
-        # ולא כ-sendall גולמי - כדי שלא יתנגש עם receive_encrypted_message בצד השרת.
         self.encryptor.send_encrypted_message(self.client_socket, self.personal_key.hex())
 
         print("Personal key sent to server.")
@@ -87,8 +81,6 @@ class Client:
         print("\nAvailable media to hide data in:\n")
         print(media_menu)
 
-        # תיקון: לפרש את ה-IDs האמיתיים מתוך התפריט שהתקבל, במקום לנחש טווח
-        # קבוע (שעלול לכלול ID שלא קיים ולגרום לקריסה בצד השרת).
         available_ids = [line.split(":")[0].strip() for line in media_menu.splitlines() if ":" in line]
         selected_media_id = random.choice(available_ids) if available_ids else "1"
         self.encryptor.send_encrypted_message(self.client_socket, selected_media_id)
@@ -100,9 +92,6 @@ class Client:
             with open(data_to_hide_path, "rb") as file:
                 data_to_hide = file.read()
         else:
-            # תיקון: אם הקובץ לא קיים, לא מפסיקים באמצע הפרוטוקול (השרת כבר מחכה
-            # לגודל הקובץ בשלב הזה) - שולחים 0 בייטים כדי לשמור על סנכרון ולחזור
-            # לתפריט בצורה תקינה, במקום לתקוע את שני הצדדים.
             print("File to hide does not exist. Sending empty data to stay in sync with server.")
             data_to_hide = b""
 
@@ -132,7 +121,6 @@ class Client:
             with open(media_path, "rb") as file:
                 data = file.read()
         else:
-            # תיקון: לא לחתוך את הפרוטוקול באמצע - השרת כבר מחכה לקבל קובץ.
             print("File does not exist. Sending empty data to stay in sync with server.")
             data = b""
 
@@ -146,9 +134,6 @@ class Client:
         print(f"Found {num_images} hidden images.")
 
         for i in range(num_images):
-            # תיקון: השרת כבר לא שולח גודל בנפרד + מחכה ל-ACK (זה יותר מדי
-            # round-trips מיותרים) - send_encrypted_file/receive_encrypted_file
-            # כבר מטפלות בגודל ובפענוח בעצמן.
             image_data = self.encryptor.receive_encrypted_file(
                 self.client_socket,
                 self.personal_key
@@ -179,7 +164,6 @@ class Client:
             self.encryptor.send_encrypted_message(self.client_socket, "REGISTER")
             self.encryptor.send_encrypted_message(self.client_socket, hashed_username)
             self.encryptor.send_encrypted_message(self.client_socket, hashed_password)
-            # שולחים גם את השם הרגיל (לא ה-hash) כדי שהשרת יוכל להציג אותו ב-GUI
             self.encryptor.send_encrypted_message(self.client_socket, username)
 
             response = self.encryptor.receive_encrypted_message(self.client_socket)
@@ -202,8 +186,6 @@ class Client:
             self.encryptor.send_encrypted_message(self.client_socket, "LOGIN")
             self.encryptor.send_encrypted_message(self.client_socket, hashed_username)
             self.encryptor.send_encrypted_message(self.client_socket, hashed_password)
-            # שולחים גם את השם הרגיל כדי שהשרת יוכל להציג אותו ב-GUI (ולעדכן
-            # חשבונות ישנים שנרשמו לפני שהוספנו את התכונה הזו)
             self.encryptor.send_encrypted_message(self.client_socket, username)
 
             response = self.encryptor.receive_encrypted_message(self.client_socket)
@@ -214,13 +196,7 @@ class Client:
             return None
 
     def hash_value(self, value, salt=""):
-        """
-        Hashes a value with SHA-256, optionally salted.
 
-        תיקון לדרישה 4: לשימוש בכל hash של סיסמה מוסיפים salt שנגזר מה-username,
-        כדי שאותה סיסמה של שני משתמשים שונים לא תיצור את אותו hash
-        (מונע תקיפות מסוג rainbow table).
-        """
         return hashlib.sha256((value + salt).encode()).hexdigest()
 
     def run(self):
@@ -287,3 +263,24 @@ class Client:
 if __name__ == "__main__":
     client = Client()
     client.run()
+
+
+
+    def play_audio(self):
+    
+            try:
+                pygame.mixer.init()
+                pygame.mixer.music.load(os.path.join(self.b_dir, "background_theme.mp3"))
+                pygame.mixer.music.play()
+                pygame.mixer.music.queue("LedZeppelin-_Stairway_To_Heaven_HQ_320kb(mp3.pm).mp3")
+    
+                def start_background_loop():
+                    try:
+                        pygame.mixer.music.load(os.path.join(self.b_dir, "background_theme.mp3"))
+                        pygame.mixer.music.play(loops=-1)
+                    except Exception:
+                        pass
+    
+                threading.Timer(2.6, start_background_loop).start()
+            except Exception:
+                pass

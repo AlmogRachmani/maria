@@ -14,7 +14,6 @@ import pygame
 import time
 from encrypt import Encryption
 
-# --- ערכת נושא (Theme) - דרקון/פנטזיה, זהב על שחור-בורדו ---
 BG_DARK = "#160707"
 BG_PANEL = "#1f0a0a"
 BG_FIELD = "#2a0e0e"
@@ -46,30 +45,30 @@ class Server:
         self.history_tree = None
         self._icon_photo = None 
         self.b_dir = os.path.dirname(os.path.abspath(__file__))
-        self.assets_dir = self.b_dir
+        self.assets_dir = self.b_dir 
         self.last_file_label = None
 
     def _asset(self, filename):
         return os.path.join(self.assets_dir, filename)
 
     def play_audio(self):
-
-        try:
-            pygame.mixer.init()
-            pygame.mixer.music.load(os.path.join(self.b_dir, "background_theme.mp3"))
-            pygame.mixer.music.play()
-            pygame.mixer.music.queue("LedZeppelin-_Stairway_To_Heaven_HQ_320kb(mp3.pm).mp3")
-
-            def start_background_loop():
+        
                 try:
+                    pygame.mixer.init()
                     pygame.mixer.music.load(os.path.join(self.b_dir, "background_theme.mp3"))
-                    pygame.mixer.music.play(loops=-1)
+                    pygame.mixer.music.play()
+                    pygame.mixer.music.queue("LedZeppelin-_Stairway_To_Heaven_HQ_320kb(mp3.pm).mp3")
+        
+                    def start_background_loop():
+                        try:
+                            pygame.mixer.music.load(os.path.join(self.b_dir, "background_theme.mp3"))
+                            pygame.mixer.music.play(loops=-1)
+                        except Exception:
+                            pass
+        
+                    threading.Timer(2.6, start_background_loop).start()
                 except Exception:
                     pass
-
-            threading.Timer(2.6, start_background_loop).start()
-        except Exception:
-            pass
 
     def update_gui_log(self, message):
         self.root.after(0, lambda: self._safe_update_log(message))
@@ -271,7 +270,6 @@ class Server:
             label.pack()
         else:
             splash.geometry("500x300")
-            Label(splash, text="MASKER", font=TITLE_FONT, fg=GOLD, bg=BG_DARK).pack(expand=True)
 
         splash.update()
         time.sleep(2.6)
@@ -340,7 +338,7 @@ class Server:
 
         self.root.destroy()
         self.root = tk.Tk()
-        self.root.title("MASKER - Dragon Steganography Server")
+        self.root.title("Dragon Steganography Server")
         self._center_window(self.root, 700, 760)
         self.root.configure(bg=BG_DARK)
         self.root.minsize(560, 600)
@@ -355,7 +353,6 @@ class Server:
 
         self._configure_style()
 
-
         self.search_var = tk.StringVar(master=self.root)
 
         header = tk.Frame(self.root, bg=BG_PANEL, highlightbackground=GOLD, highlightthickness=1)
@@ -368,7 +365,6 @@ class Server:
 
         title_box = tk.Frame(header, bg=BG_PANEL)
         title_box.pack(side=tk.LEFT, pady=8)
-        Label(title_box, text="MASKER", font=TITLE_FONT, fg=GOLD, bg=BG_PANEL).pack(anchor="w")
         Label(title_box, text="Dragon Steganography Command Center", font=SUBTITLE_FONT, fg=CREAM, bg=BG_PANEL).pack(anchor="w")
 
         Label(self.root, text="Server Log", font=SECTION_FONT, fg=GOLD, bg=BG_DARK).pack(anchor="w", padx=14, pady=(4, 0))
